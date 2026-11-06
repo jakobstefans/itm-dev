@@ -10,6 +10,7 @@ import { FormEvent, useState } from 'react'
 import {
     createCollection,
     createCollectionFromJson,
+    sqlStr,
     deleteCollection,
     exportDB,
     getUserById,
@@ -129,7 +130,7 @@ export function CollectionsPage() {
                                 ev.preventDefault()
                                 // console.log(ev.currentTarget.name.value)
                                 query(
-                                    `UPDATE user SET name = "${ev.currentTarget.name.value}" WHERE id = 3`
+                                    `UPDATE user SET name = ${sqlStr(ev.currentTarget.name.value)} WHERE id = 3`
                                 )
                                 queryClient.invalidateQueries({
                                     queryKey: queryKey,

@@ -47,29 +47,55 @@ const queryClient = new QueryClient({
 
 function App() {
     const [promiseWorkerLoaded, setPromiseWorkerLoaded] = useState(false)
+    const [loadError, setLoadError] = useState<string | null>(null)
     const [currentTheme, setCurrentTheme] = useState(
         window.localStorage.getItem('theme_mode') ?? 'light'
     )
     useEffect(() => {
-        const intervalID = setInterval(() => {
-            console.log('callback yo')
-            try {
-                query('select * from sign limit 5').then((res: any) => {
-                    if (res[0]) {
-                        clearInterval(intervalID)
-                        setPromiseWorkerLoaded(true)
-                        console.log('promise worker loaded')
-                    }
-                })
-            } catch (error) {
+        // The worker answers once the database is ready (the first visit
+        // builds it, which can take a while), or rejects if loading failed.
+        query('select * from sign limit 5')
+            .then((res: any) => {
+                if (res && res[0]) {
+                    setPromiseWorkerLoaded(true)
+                } else {
+                    setLoadError('Orðabókin er tóm.')
+                }
+            })
+            .catch((error: any) => {
                 console.error(error)
-            }
-        }, 500)
+                setLoadError(String(error?.message || error || 'Óþekkt villa'))
+            })
     }, [])
 
+    if (loadError !== null) {
+        return (
+            <div role="alert" style={{ padding: '2em', textAlign: 'center' }}>
+                <h1>Ekki tókst að hlaða orðabókinni</h1>
+                <p>
+                    Athugaðu nettenginguna og reyndu aftur. Ef vandinn heldur
+                    áfram, prófaðu annan vafra.
+                </p>
+                <button onClick={() => window.location.reload()}>
+                    Reyna aftur
+                </button>
+                <details style={{ marginTop: '1em' }}>
+                    <summary>Tæknilegar upplýsingar</summary>
+                    <code>{loadError}</code>
+                </details>
+            </div>
+        )
+    }
+
     if (!promiseWorkerLoaded) {
-        return
-        return <PlaceholderScreen />
+        return (
+            <div role="status" aria-live="polite">
+                <PlaceholderScreen />
+                <p style={{ textAlign: 'center' }}>
+                    Hleð orðabók… Fyrsta skiptið getur tekið smá stund.
+                </p>
+            </div>
+        )
     }
     return (
         <Suspense>

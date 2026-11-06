@@ -1,4 +1,23 @@
 const DB_CONSOLE_LOGS = true
+
+// Quote any value as an SQL string literal. Always use this instead of
+// putting user text inside "..." in a query: double quotes are identifiers in
+// SQLite, and a quote in the text (e.g. a collection named 5. bekkur "Matur")
+// would otherwise break the query.
+const sqlStr = (value: unknown) => `'${String(value).replace(/'/g, "''")}'`
+
+// Turn free search text into a safe FTS5 prefix query: every word is quoted
+// so punctuation (", -, (, :) can't cause an FTS syntax error, and the last
+// word matches as a prefix. Returned already quoted as an SQL literal.
+const ftsPrefixQuery = (text: string) => {
+    const words = String(text)
+        .replace(/\*/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => `"${word.replace(/"/g, '""')}"`)
+    return sqlStr(words.length ? words.join(' ') + '*' : '""')
+}
+
 const query = async (query: string) => {
     DB_CONSOLE_LOGS && console.log(query)
     const result = await window.promiseWorker.postMessage({
@@ -34,21 +53,21 @@ const createCollectionFromJson = async (jsonCollection: {
     signs: string[]
 }) => {
     exec(
-        `INSERT INTO collection(name,user_id) VALUES("${jsonCollection.name}",3)`
+        `INSERT INTO collection(name,user_id) VALUES(${sqlStr(jsonCollection.name)},3)`
     )
     jsonCollection.signs.forEach((sign) => {
         exec(`INSERT INTO sign_collection(sign_id,collection_id)
                 SELECT sign.id,collection.id
                 FROM sign
                 LEFT JOIN collection
-                WHERE sign.phrase = "${sign}"
-                AND collection.name = "${jsonCollection.name}"
+                WHERE sign.phrase = ${sqlStr(sign)}
+                AND collection.name = ${sqlStr(jsonCollection.name)}
                 `)
     })
     const res = await query(`SELECT * FROM sign
                             JOIN sign_collection ON sign.id = sign_collection.sign_id
                             JOIN collection ON sign_collection.collection_id = collection.id
-                            WHERE collection.name = "${jsonCollection.name}"
+                            WHERE collection.name = ${sqlStr(jsonCollection.name)}
                             `)
     console.log(res)
 }
@@ -96,7 +115,7 @@ const createCollection = async ({
 }) => {
     exec(`
     INSERT INTO collection(name,user_id)
-    VALUES ("${collectionName}",${userId})
+    VALUES (${sqlStr(collectionName)},${Number(userId)})
     `)
 }
 
@@ -282,7 +301,7 @@ const getSignByPhrase = async (phrase: string) => {
                 SELECT related_id from sign_related where sign_id = sign.id
                 )
             ) as related
-            WHERE sign.phrase LIKE "${String(phrase).toLowerCase().trim()}"
+            WHERE sign.phrase LIKE ${sqlStr(String(phrase).toLowerCase().trim())}
             GROUP BY sign.id
     `
     const signs = await query(stmt)
@@ -343,7 +362,7 @@ const searchSigns = async (searchValue: string, collectionId: number = 3) => {
             ON sign_collection.sign_id = sign.id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign.phrase like "%${searchValue.substring(1)}%"
+            where sign.phrase like ${sqlStr('%' + searchValue.substring(1) + '%')}
             group by sign.id
             order by sign.phrase asc`
     }
@@ -362,7 +381,7 @@ const searchSigns = async (searchValue: string, collectionId: number = 3) => {
             ON sign_collection.sign_id = sign.id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign_fts match "${searchValue}"
+            where sign_fts match ${ftsPrefixQuery(searchValue)}
             group by sign.id
             order by sign_fts.rank, sign.phrase asc`
     }
@@ -446,7 +465,7 @@ const getCollectionById = async (
             on collection.id = sign_collection.collection_id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign.phrase like "%${searchValue.substring(1)}%"
+            where sign.phrase like ${sqlStr('%' + searchValue.substring(1) + '%')}
             and collection.id = ${collectionId}
             group by sign.id
             order by sign.phrase asc
@@ -472,7 +491,7 @@ const getCollectionById = async (
             on collection.id = sign_collection.collection_id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign_fts match "${searchValue}"
+            where sign_fts match ${ftsPrefixQuery(searchValue)}
             and collection.id = ${collectionId}
             group by sign.id
             order by sign_fts.rank, sign.phrase asc
@@ -575,13 +594,13 @@ const searchPagedCollectionById = async ({
         // left join sign_collection on sign.id = sign_collection.sign_id
         // left join collection
         // on collection.id = sign_collection.collection_id
-        // where sign.phrase like "%${searchValue.substring(1)}%"
+        // where sign.phrase like ${sqlStr('%' + searchValue.substring(1) + '%')}
         // and collection.id = ${collectionId}
         // `)
         // totalSignCount = tempCount[0].sign_count
         const orderBy =
             collectionId == 1
-                ? `levenshtein(sign.phrase,${searchValue.substring(1)}) asc`
+                ? `levenshtein(sign.phrase,${sqlStr(searchValue.substring(1))}) asc`
                 : 'sign_collection.date_added'
         stmt = `select distinct sign.id as sign_id,
             sign.phrase as phrase,
@@ -601,7 +620,7 @@ const searchPagedCollectionById = async ({
             on multiCollection.id = sign_collection.collection_id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign.phrase like "%${searchValue.substring(1)}%"
+            where sign.phrase like ${sqlStr('%' + searchValue.substring(1) + '%')}
             and collection.id = ${collectionId}
             group by sign_collection.sign_id
             order by ${orderBy}
@@ -619,7 +638,7 @@ const searchPagedCollectionById = async ({
         // left join sign_collection on sign.id = sign_collection.sign_id
         // left join collection
         // on collection.id = sign_collection.collection_id
-        // where sign_fts match "${starredSearchValue}"
+        // where sign_fts match ${ftsPrefixQuery(searchValue)}
         // and collection.id = ${collectionId}
         // `)
         // totalSignCount = tempCount[0].sign_count
@@ -627,7 +646,7 @@ const searchPagedCollectionById = async ({
         // console.log({ offset, tempCount, totalSignCount, totalPages })
         const orderBy =
             collectionId == 1
-                ? `levenshtein(sign.phrase,"${searchValue.substring(1)}") asc`
+                ? `levenshtein(sign.phrase,${sqlStr(searchValue.substring(1))}) asc`
                 : 'sign_collection.date_added'
         stmt = `select distinct sign.id as sign_id,
             sign.phrase as phrase,
@@ -646,7 +665,7 @@ const searchPagedCollectionById = async ({
             on multiCollection.id = sign_collection.collection_id
             LEFT JOIN sign_video
             ON sign.id = sign_video.sign_id
-            where sign_fts match "${starredSearchValue}"
+            where sign_fts match ${ftsPrefixQuery(searchValue)}
             and collection.id = ${collectionId}
             group by sign_collection.sign_id
             order by ${orderBy}
@@ -728,9 +747,7 @@ const searchPagedCollectionByIdRefactor = async ({
         Object.keys(signDetails).forEach((key, idx) => {
             if (signDetails[key] != '') {
                 signDetailsClause += ' AND '
-                signDetailsClause += `${key} in ("${signDetails[key].join(
-                    '", "'
-                )}")`
+                signDetailsClause += `${key} in (${signDetails[key].map(sqlStr).join(', ')})`
             }
         })
         signDetailsClause += '\n'
@@ -801,7 +818,7 @@ const searchPagedCollectionByIdRefactor = async ({
         const orderByClause = `${
             orderBy.value == 'az' ? 'sign.phrase' : 'date_added'
             // orderBy.value == 'az' ? 'localizedOrder(sign.phrase)' : 'date_added'
-        } ${orderBy.order}`
+        } ${orderBy.order == 'desc' ? 'desc' : 'asc'}`
         stmt = `
             ${selectClause}
             ${fromClause}
@@ -818,17 +835,17 @@ const searchPagedCollectionByIdRefactor = async ({
         //         : 'date_added'
         const orderByClause = `${
             orderBy.value == 'az'
-                ? 'levenshtein(sign.phrase,"' + searchValue + '")'
+                ? 'levenshtein(sign.phrase,' + sqlStr(searchValue) + ')'
                 : 'date_added'
-        } ${orderBy.order}`
+        } ${orderBy.order == 'desc' ? 'desc' : 'asc'}`
 
         const likeWhereClause = `
-        WHERE sign.phrase LIKE "%${searchValue}%"
+        WHERE sign.phrase LIKE ${sqlStr('%' + searchValue + '%')}
         AND collection.id = ${collectionId}
         ${signDetails ? signDetailsClause : ''}
         `
         const ftsWhereClause = `
-        WHERE sign_fts MATCH "${searchValue}*"
+        WHERE sign_fts MATCH ${ftsPrefixQuery(searchValue)}
         AND collection.id = ${collectionId}
         ${signDetails ? signDetailsClause : ''}
         `
@@ -849,7 +866,7 @@ const searchPagedCollectionByIdRefactor = async ({
         // totalPages = Math.ceil(totalSignCount / limit)
         // console.log({ offset, tempCount, totalSignCount, totalPages })
         stmt = `
-        select *,count(sign.sign_id) over() as sign_count, levenshtein(sign.phrase,"${searchValue}") as levenshtein, sign.phrase as levenshtein_sign_phrase, "${searchValue}" as levenshtein_search_value from (
+        select *,count(sign.sign_id) over() as sign_count, levenshtein(sign.phrase,${sqlStr(searchValue)}) as levenshtein, sign.phrase as levenshtein_sign_phrase, ${sqlStr(searchValue)} as levenshtein_search_value from (
             ${selectClause}
             ${fromClause}
             ${likeWhereClause}
@@ -950,6 +967,7 @@ const listSignDetails = async () => {
 }
 
 export {
+    sqlStr,
     query,
     getSignById,
     getSignByPhrase,

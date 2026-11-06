@@ -1,4 +1,4 @@
-import initSqlJs from '@jlongster/sql.js/dist/sql-wasm'
+import initSqlJs from './vendor/sql-wasm.js'
 import { SQLiteFS } from 'absurd-sql'
 import IndexedDBBackend from 'absurd-sql/dist/indexeddb-backend'
 import registerPromiseWorker from 'promise-worker/register'
@@ -284,6 +284,12 @@ const levenshteinDistanceWithStartPenalty = (str1 = '', str2 = '') => {
     return track[str2.length][str1.length]
 }
 
+// Tables holding the user's own data. These survive dictionary upgrades.
+const USER_TABLES = ['user', 'collection', 'sign_collection']
+
+// The open database, set once run() has finished loading it.
+let db: any
+
 async function run() {
     console.log('yo')
     let SQL
@@ -303,7 +309,7 @@ async function run() {
         SQL.FS.close(stream)
     }
 
-    let db = new SQL.Database(path, { filename: true })
+    db = new SQL.Database(path, { filename: true })
     // You might want to try `PRAGMA page_size=8192;` too!
     db.exec(`
   PRAGMA journal_mode=MEMORY;
@@ -343,8 +349,12 @@ async function run() {
         console.log('pragma user version', user_version, currentVersion)
         if (res.length && user_version != currentVersion) {
             initDB = true
+            // Rebuild the dictionary tables but keep the user's own data
+            // (users, collections and the signs in them) across upgrades.
             db.exec(`PRAGMA writable_schema = 1;
-            delete from sqlite_master where type in ('table', 'index', 'trigger');
+            delete from sqlite_master
+                where type in ('table', 'index', 'trigger')
+                and tbl_name not in (${USER_TABLES.map((t) => `'${t}'`).join(',')});
             PRAGMA writable_schema = 0;
             VACUUM;
             PRAGMA INTEGRITY_CHECK`)
@@ -381,56 +391,71 @@ async function run() {
                 }
             }
         }
-        // db.exec()
-        db.exec('INSERT INTO user(name,id) VALUES("ÍTM",1)')
+        // Default users/collections. OR IGNORE so existing rows (kept from a
+        // previous version) are left untouched.
+        db.exec("INSERT OR IGNORE INTO user(name,id) VALUES('ÍTM',1)")
         db.exec(
-            'INSERT INTO collection(id,user_id,name) VALUES(1,1,"Öll tákn")'
+            "INSERT OR IGNORE INTO collection(id,user_id,name) VALUES(1,1,'Öll tákn')"
         )
+        // "Öll tákn" always mirrors the current dictionary.
+        db.exec('DELETE FROM sign_collection WHERE collection_id = 1')
         db.exec(
             'INSERT INTO sign_collection(sign_id,collection_id) SELECT sign.id, 1 FROM sign'
         )
-        db.exec('INSERT INTO user(name, id) VALUES("Ég",3);')
+        db.exec("INSERT OR IGNORE INTO user(name, id) VALUES('Ég',3)")
         db.exec(
-            'INSERT INTO collection(id,user_id,name) VALUES(3,3,"Mín tákn");'
+            "INSERT OR IGNORE INTO collection(id,user_id,name) VALUES(3,3,'Mín tákn')"
         )
         db.exec(`pragma user_version = ${currentVersion}`)
     }
-
-    async function listDefaultCollections() {
-        let filepathPrefix = `${import.meta.env.BASE_URL}`
-        let collectionFilePath = `${filepathPrefix}default-collections.json`
-        const json_response = fetch(collectionFilePath).then((res) =>
-            res.json()
-        )
-        // let res = []
-        // for await (let line of makeTextFileLineIterator(collectionFilePath)) {
-        //     // console.log(line)
-        //     res.push(line)
-        // }
-        return json_response
-        // `${filepathPrefix}assets/sign_tables.txt`,
-
-        // for await (let line of makeTextFileLineIterator(filepath)) {
-    }
-
-    registerPromiseWorker(async function (
-        message: absurdSqlPromiseWorkerMessage
-    ) {
-        switch (message.type) {
-            case 'sql':
-                return db.query(message.query)
-            case 'exec':
-                db.exec(message.query)
-                break
-            case 'export':
-                return db.export()
-            case 'listCollections':
-                return listDefaultCollections()
-        }
-    })
 }
 
-run()
+async function listDefaultCollections() {
+    const collectionFilePath = `${import.meta.env.BASE_URL}default-collections.json`
+    const res = await fetch(collectionFilePath)
+    return res.json()
+}
+
+// Start loading straight away. Every request waits for loading to finish, so
+// nothing is lost if the app asks early, and if loading fails each request
+// gets the error back instead of waiting forever.
+const dbReady = run()
+dbReady.catch((error) =>
+    console.error('Loading the database failed:', describeError(error), error?.stack)
+)
+
+// Errors from sql.js/absurd-sql often have an empty message; make sure the
+// app always gets something readable.
+function describeError(error: any) {
+    return (
+        error?.message ||
+        error?.name ||
+        (typeof error === 'string' ? error : JSON.stringify(error)) ||
+        'Óþekkt villa'
+    )
+}
+
+registerPromiseWorker(async function (
+    message: absurdSqlPromiseWorkerMessage
+) {
+    if (message.type === 'listCollections') {
+        return listDefaultCollections()
+    }
+    try {
+        await dbReady
+    } catch (error) {
+        throw new Error('Gagnagrunnur hlóðst ekki: ' + describeError(error))
+    }
+    switch (message.type) {
+        case 'sql':
+            return db.query(message.query)
+        case 'exec':
+            db.exec(message.query)
+            break
+        case 'export':
+            return db.export()
+    }
+})
 
 async function* makeTextFileLineIterator(fileURL: string) {
     const utf8Decoder = new TextDecoder('utf-8')
