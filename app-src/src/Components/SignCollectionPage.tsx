@@ -16,6 +16,8 @@ import { MyLocationGenerics } from './Generics'
 import { SignCollectionItem } from './SignCollectionItem'
 import { SelectCollection } from './SelectCollection'
 import { SignFilter } from './SignFilter'
+import { CategoryPicker } from './CategoryPicker'
+import { islenskSamanburdur } from '../islenskRod'
 
 export function SignCollectionPage() {
     const queryClient = useQueryClient()
@@ -198,6 +200,8 @@ export function SignCollectionPage() {
                     />
                 </div>
             </Header>
+            {/* Outside the sticky header so an open list doesn't cover the results on phones. */}
+            <CategoryPicker />
 
             {data && (
                 <div className="signlist" ref={scrollRef}>
@@ -210,6 +214,32 @@ export function SignCollectionPage() {
                         limit={data.limit}
                         currentPage={page}
                     />
+                    {data.signs.length == 0 && (
+                        <div className="no-results" role="status">
+                            <p>
+                                <b>Engin tákn fundust.</b>
+                            </p>
+                            <p>
+                                {search.query
+                                    ? `Ekkert tákn passar við „${search.query}“`
+                                    : 'Ekkert tákn passar við valið'}
+                                {search.efnisflokkur?.length
+                                    ? ` í ${
+                                          search.efnisflokkur.length == 1
+                                              ? 'efnisflokknum'
+                                              : 'efnisflokkunum'
+                                      } ${[...search.efnisflokkur]
+                                          .sort(islenskSamanburdur)
+                                          .join(', ')}`
+                                    : ''}
+                                .
+                            </p>
+                            <p>
+                                Prófaðu annað leitarorð, fleiri efnisflokka
+                                eða færri síur.
+                            </p>
+                        </div>
+                    )}
                     {data.signs.map((sign) => {
                         return (
                             <SignCollectionItem
