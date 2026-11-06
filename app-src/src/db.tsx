@@ -1,3 +1,4 @@
+import { islenskSamanburdur } from './islenskRod'
 const DB_CONSOLE_LOGS = true
 
 // Quote any value as an SQL string literal. Always use this instead of
@@ -742,12 +743,22 @@ const searchPagedCollectionByIdRefactor = async ({
             )
         })
 
+    if (signDetails.efnisflokkur.length) {
+        signDetails.efnisflokkur = await expandEfnisflokkar(
+            signDetails.efnisflokkur
+        )
+    }
+
     let signDetailsClause = ''
     if (useSignDetails && signDetails) {
         Object.keys(signDetails).forEach((key, idx) => {
             if (signDetails[key] != '') {
+                // A sign matches if any of its categories is selected (OR);
+                // the GROUP BY below keeps each sign once.
+                const column =
+                    key == 'efnisflokkur' ? 'efnisflokkur.text' : `sign.${key}`
                 signDetailsClause += ' AND '
-                signDetailsClause += `${key} in (${signDetails[key].map(sqlStr).join(', ')})`
+                signDetailsClause += `${column} in (${signDetails[key].map(sqlStr).join(', ')})`
             }
         })
         signDetailsClause += '\n'
@@ -943,6 +954,44 @@ const listHandforms = async () => {
     })
 }
 
+const efnisflokkurKey = (text: string) => text.trim().toLocaleLowerCase('is')
+
+let efnisflokkarCache:
+    | Promise<{ name: string; variants: string[] }[]>
+    | undefined
+
+// All categories in the dictionary, sorted in Icelandic alphabetical order.
+// The data has case duplicates ("Dýr" / "dýr"), so those are merged into one
+// entry that matches every spelling.
+const listEfnisflokkar = () => {
+    efnisflokkarCache ??= query(
+        `select distinct text from efnisflokkur where text is not null and trim(text) != ''`
+    ).then((rows: { text: string }[]) => {
+        const groups = new Map<string, string[]>()
+        for (const { text } of rows) {
+            const key = efnisflokkurKey(text)
+            groups.set(key, [...(groups.get(key) ?? []), text])
+        }
+        return Array.from(groups.values())
+            .map((variants) => ({
+                name:
+                    variants.find((v) => v[0] != v[0].toLocaleLowerCase('is')) ??
+                    variants[0],
+                variants,
+            }))
+            .sort((a, b) => islenskSamanburdur(a.name, b.name))
+    })
+    // Allow a retry if the database wasn't ready.
+    efnisflokkarCache.catch(() => (efnisflokkarCache = undefined))
+    return efnisflokkarCache
+}
+
+const expandEfnisflokkar = async (names: string[]) => {
+    const all = await listEfnisflokkar()
+    const byKey = new Map(all.map((c) => [efnisflokkurKey(c.name), c.variants]))
+    return names.flatMap((name) => byKey.get(efnisflokkurKey(name)) ?? [name])
+}
+
 const listSignDetails = async () => {
     const handform = await query(
         `select distinct handform from sign where handform is not null order by handform`
@@ -986,6 +1035,7 @@ export {
     searchPagedCollectionByIdRefactor,
     listHandforms,
     listSignDetails,
+    listEfnisflokkar,
     exportDB,
     listDefaultCollections,
     createCollectionFromJson,

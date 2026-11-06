@@ -25,7 +25,7 @@ export function SignFilter() {
     const filtersWithAccents = {
         handform: 'Handform',
         ordflokkur: 'Orðflokkur',
-        efnisflokkur: 'Efnisflokkur',
+        // Efnisflokkur is chosen in CategoryPicker under the search box.
         myndunarstadur: 'Myndunarstaður',
     }
 
@@ -191,7 +191,6 @@ export function SignFilter() {
                                 page: 1,
                                 handform: undefined,
                                 ordflokkur: undefined,
-                                efnisflokkur: undefined,
                                 myndunarstadur: undefined,
                             })}
                         >
@@ -309,57 +308,9 @@ export function SignFilter() {
                         </select>
                     </label>
                     <br />
-                    <label htmlFor="">
-                        <b>Efnisflokkur</b>
-                        {search.efnisflokkur?.length && (
-                            <Link
-                                search={(old) => ({
-                                    ...old,
-                                    page: 1,
-                                    efnisflokkur: undefined,
-                                })}
-                                className="material-icons"
-                            >
-                                delete
-                            </Link>
-                        )}
-                        {search.efnisflokkur && (
-                            <>
-                                <br />
-                                <div style={{ maxWidth: '100%' }}>
-                                    {search.efnisflokkur.join(', ')}
-                                </div>
-                            </>
-                        )}{' '}
-                        <br />
-                        <br />
-                        <select
-                            className="sign-info-item"
-                            multiple
-                            value={search.efnisflokkur ?? []}
-                            onChange={(ev) =>
-                                changeDetail(ev, { kind: 'efnisflokkur' })
-                            }
-                        >
-                            <option value="Efnisflokkur" disabled>
-                                Efnisflokkur
-                            </option>
-
-                            {signDetails?.efnisflokkur?.map((efnisfl) => {
-                                return (
-                                    <option
-                                        // selected={search.efnisflokkur?.includes(
-                                        //     efnisfl
-                                        // )}
-                                        key={efnisfl}
-                                        value={efnisfl}
-                                    >
-                                        {efnisfl}
-                                    </option>
-                                )
-                            })}
-                        </select>
-                    </label>
+                    <p className="sign-filter-note">
+                        Efnisflokka velur þú undir leitarreitnum.
+                    </p>
                     <label htmlFor="">
                         <br />
                         <b>Myndunarstaður</b>
