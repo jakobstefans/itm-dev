@@ -24,6 +24,24 @@ export function SignPlayer(props: any) {
     const [playerReadyCount, setPlayerReadyCount] = useState(0)
     const [showThumbnail, setShowThumbnail] = useState(true)
     const [target, setTarget] = useState()
+    const [videoError, setVideoError] = useState<string | null>(null)
+
+    // If YouTube never loads (e.g. blocked by a school web filter or no
+    // internet), tell the user instead of showing a spinner forever.
+    useEffect(() => {
+        setVideoError(null)
+    }, [props.videoId])
+    useEffect(() => {
+        if (target) {
+            // Player loaded; drop a "couldn't load" message, keep real errors.
+            setVideoError((current) => (current === 'timeout' ? null : current))
+            return
+        }
+        const timeout = setTimeout(() => {
+            setVideoError((current) => current ?? 'timeout')
+        }, 20000)
+        return () => clearTimeout(timeout)
+    }, [props.videoId, target])
 
     const playerRef = useRef()
 
@@ -33,6 +51,7 @@ export function SignPlayer(props: any) {
     const [thumbnailUrl, setThumbnailUrl] = useState(hiResUrl)
 
     const playVideo = () => {
+        if (!target) return
         if (isSafari) {
             target.playVideo()
             setShowThumbnail(false)
@@ -92,7 +111,10 @@ export function SignPlayer(props: any) {
                             setPlayerReady(true)
                             setPlayerReadyCount((count) => count + 1)
                         }}
-                        onError={() => console.log('ERROR')}
+                        onError={(ev: { data: number }) => {
+                            console.error('YouTube error', ev?.data)
+                            setVideoError(String(ev?.data ?? 'unknown'))
+                        }}
                         style={{
                             visibility: showThumbnail ? 'hidden' : undefined,
                         }}
@@ -144,9 +166,21 @@ export function SignPlayer(props: any) {
                                     })`,
                                     cursor: 'pointer',
                                 }}
+                                role="button"
                                 tabIndex={0}
+                                aria-label={`Spila myndband: ${
+                                    props.title ?? 'tákn'
+                                }`}
+                                aria-disabled={!target}
                                 className="material-icons"
                                 onClick={playVideo}
+                                onKeyDown={(ev) => {
+                                    if (ev.key === ' ' || ev.key === 'Enter') {
+                                        ev.preventDefault()
+                                        ev.stopPropagation()
+                                        playVideo()
+                                    }
+                                }}
                             >
                                 play_circle
                             </span>
@@ -165,6 +199,38 @@ export function SignPlayer(props: any) {
                                 }}
                             ></span>
                         </span>
+                    )}
+                    {videoError && (
+                        <div
+                            role="alert"
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                textAlign: 'center',
+                                padding: '1em',
+                                background: '#111',
+                                zIndex: 2,
+                                color: 'white',
+                            }}
+                        >
+                            <p style={{ margin: '0 0 0.5em' }}>
+                                {videoError === 'timeout'
+                                    ? 'Ekki tókst að hlaða myndbandinu. Athugaðu nettenginguna — YouTube gæti verið lokað á þessu neti.'
+                                    : 'Þetta myndband er ekki aðgengilegt.'}
+                            </p>
+                            <a
+                                href={`https://www.youtube.com/watch?v=${props.videoId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: 'white' }}
+                            >
+                                Opna á YouTube
+                            </a>
+                        </div>
                     )}
                 </div>
             </div>
