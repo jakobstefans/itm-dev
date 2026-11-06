@@ -71,6 +71,7 @@
     max-height: min(16rem, 40vh);
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-color: #888 transparent;
 }
 
 .category-picker-list label {
